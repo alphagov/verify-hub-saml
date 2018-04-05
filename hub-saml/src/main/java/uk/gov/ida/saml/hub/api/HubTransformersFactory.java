@@ -103,6 +103,7 @@ import uk.gov.ida.saml.security.EncryptionKeyStore;
 import uk.gov.ida.saml.security.EntityToEncryptForLocator;
 import uk.gov.ida.saml.security.IdaKeyStore;
 import uk.gov.ida.saml.security.IdaKeyStoreCredentialRetriever;
+import uk.gov.ida.saml.security.MetadataBackedSignatureValidator;
 import uk.gov.ida.saml.security.SamlAssertionsSignatureValidator;
 import uk.gov.ida.saml.security.SamlMessageSignatureValidator;
 import uk.gov.ida.saml.security.SignatureFactory;
@@ -340,7 +341,7 @@ public class HubTransformersFactory {
     }
 
     public Function<String, InboundResponseFromIdp> getStringToIdaResponseIssuedByIdpTransformer(
-            SigningKeyStore signingKeyStore,
+            MetadataBackedSignatureValidator idpSignatureValidator,
             IdaKeyStore keyStore,
             URI expectedDestinationHost,
             String expectedEndpoint,
@@ -349,27 +350,27 @@ public class HubTransformersFactory {
         // not sure if we need to allow an extra ResponseSizeValidator here.
         Function<String, Response> t1 = getStringToResponseTransformer();
         Function<Response, InboundResponseFromIdp> t2 = getDecoratedSamlResponseToIdaResponseIssuedByIdpTransformer(
-                signingKeyStore,
+                idpSignatureValidator,
                 keyStore,
                 expectedDestinationHost,
                 expectedEndpoint,
                 assertionIdCache,
-                hubEntityId);
+                hubEntityId
+        );
         return  t2.compose(t1);
     }
 
     public DecoratedSamlResponseToIdaResponseIssuedByIdpTransformer getDecoratedSamlResponseToIdaResponseIssuedByIdpTransformer(
-            SigningKeyStore signingKeyStore,
+            MetadataBackedSignatureValidator idpSignatureValidator,
             IdaKeyStore keyStore,
             URI expectedDestinationHost,
             String expectedEndpoint,
             ConcurrentMap<String, DateTime> assertionIdCache,
             String hubEntityId) {
-        SigningCredentialFactory signingCredentialFactory = new SigningCredentialFactory(signingKeyStore);
 
-        IdpResponseValidator validator = new IdpResponseValidator(this.<InboundResponseFromIdp>getSamlResponseSignatureValidator(signingCredentialFactory),
+        IdpResponseValidator validator = new IdpResponseValidator(this.<InboundResponseFromIdp>getIdpResponseSignatureValidator(idpSignatureValidator),
             this.<InboundResponseFromIdp>getSamlResponseAssertionDecrypter(keyStore),
-            new SamlAssertionsSignatureValidator(new SamlMessageSignatureValidator(new CredentialFactorySignatureValidator(signingCredentialFactory))),
+            new SamlAssertionsSignatureValidator(new SamlMessageSignatureValidator(idpSignatureValidator)),
             new EncryptedResponseFromIdpValidator(new SamlStatusToIdpIdaStatusMappingsFactory()),
             new DestinationValidator(expectedDestinationHost, expectedEndpoint),
             getResponseAssertionsFromIdpValidator(assertionIdCache, hubEntityId));
@@ -535,6 +536,10 @@ public class HubTransformersFactory {
 
     private SamlResponseSignatureValidator getSamlResponseSignatureValidator(SigningCredentialFactory signingCredentialFactory) {
         SignatureValidator signatureValidator = coreTransformersFactory.getSignatureValidator(signingCredentialFactory);
+        return new SamlResponseSignatureValidator(new SamlMessageSignatureValidator(signatureValidator));
+    }
+
+    private SamlResponseSignatureValidator getIdpResponseSignatureValidator(MetadataBackedSignatureValidator signatureValidator) {
         return new SamlResponseSignatureValidator(new SamlMessageSignatureValidator(signatureValidator));
     }
 }
